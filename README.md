@@ -45,7 +45,6 @@ hf auth login
 
 # Request access to these gated models (usually instant approval):
 #   https://huggingface.co/facebook/dinov3-vitl16-pretrain-lvd1689m
-#   https://huggingface.co/briaai/RMBG-2.0
 
 # Run setup (creates venv, installs deps, clones & patches TRELLIS.2,
 # builds Metal backends if the toolchain is available)
@@ -141,7 +140,7 @@ The shape and texture decoder VAEs got 2.5–2.9× faster after [Pedro Naugusto 
 
 Memory usage peaks at around 18GB unified memory during generation.
 
-First-ever run adds ~15GB of HuggingFace weight downloads (TRELLIS.2, DINOv3, RMBG-2.0) — network-bound, not included above. The pipeline load time is dominated by deserializing those weights from disk; if you batch multiple images in one Python process you pay load once.
+First-ever run adds ~15GB of HuggingFace weight downloads (TRELLIS.2, DINOv3, BiRefNet) — network-bound, not included above. The pipeline load time is dominated by deserializing those weights from disk; if you batch multiple images in one Python process you pay load once.
 
 With `SKIP_METAL=1` (pure-Python KDTree baker) the texture bake takes ~15s instead of ~11s and coverage near UV chart boundaries is slightly softer. Without the `mtlgemm` Python package specifically, the Metal baker falls back to a `torch.nn.functional.grid_sample` call that can leave mild ring artifacts on curved surfaces; installing `mtlgemm` (done automatically by `setup.sh`) gets rid of them.
 
@@ -165,11 +164,11 @@ The porting code in this repository (backends, patches, scripts) is released und
 Upstream model weights are subject to their own licenses:
 - **TRELLIS.2**: [MIT License](https://github.com/microsoft/TRELLIS.2/blob/main/LICENSE)
 - **DINOv3**: [Meta custom license](https://huggingface.co/facebook/dinov3-vitl16-pretrain-lvd1689m/blob/main/LICENSE.md) (gated, review before commercial use)
-- **RMBG-2.0**: [CC BY-NC 4.0](https://huggingface.co/briaai/RMBG-2.0) (non-commercial; commercial use requires a license from BRIA)
+- **BiRefNet**: [MIT License](https://huggingface.co/ZhengPeng7/BiRefNet)
 
 ## Credits
 
 - [TRELLIS.2](https://github.com/microsoft/TRELLIS.2) by Microsoft Research — the original model and codebase
 - [DINOv3](https://github.com/facebookresearch/dinov3) by Meta — image feature extraction
-- [RMBG-2.0](https://github.com/Bria-AI/RMBG-2.0) by BRIA AI — background removal
+- [BiRefNet](https://github.com/ZhengPeng7/BiRefNet) by ZhengPeng7 — background removal
 - [@pedronaugusto](https://github.com/pedronaugusto) — `mtldiffrast`, `mtlbvh`, `mtlmesh`, and the CPU fork of `o_voxel` that together provide the Metal texture-baking path used by this repo

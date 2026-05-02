@@ -188,47 +188,64 @@ def patch_image_feature_extractor():
 
 
 def patch_birefnet():
-    """Add device property and fix hardcoded .cuda()/.to('cuda') calls."""
+    """Fix CUDA-specific calls, hardcoded model name, and input dtype mismatch."""
     path = os.path.join(TRELLIS_ROOT, "trellis2/pipelines/rembg/BiRefNet.py")
     src = read_file(path)
+    changed = False
 
-    if "def device(self)" in src:
+    # Device property + cuda fix
+    if "def device(self)" not in src:
+        src = src.replace(
+            "    def to(self, device: str):\n"
+            "        self.model.to(device)\n"
+            "\n"
+            "    def cuda(self):\n"
+            "        self.model.cuda()\n"
+            "\n"
+            "    def cpu(self):\n"
+            "        self.model.cpu()",
+
+            "    @property\n"
+            "    def device(self):\n"
+            "        return next(self.model.parameters()).device\n"
+            "\n"
+            "    def to(self, device):\n"
+            "        self.model.to(device)\n"
+            "        return self\n"
+            "\n"
+            "    def cuda(self):\n"
+            "        self.model.to(self.device)\n"
+            "\n"
+            "    def cpu(self):\n"
+            "        self.model.cpu()",
+        )
+        src = src.replace(
+            '.unsqueeze(0).to("cuda")',
+            ".unsqueeze(0).to(self.device)",
+        )
+        changed = True
+
+    # Use open-source BiRefNet instead of gated briaai/RMBG-2.0
+    if "briaai/RMBG-2.0" in src:
+        src = src.replace(
+            'model_name: str = "briaai/RMBG-2.0"',
+            'model_name: str = "ZhengPeng7/BiRefNet"',
+        )
+        changed = True
+
+    # Cast input tensor to model dtype (float32 input vs float16 weights)
+    if "model_dtype" not in src:
+        src = src.replace(
+            "        input_images = self.transform_image(image).unsqueeze(0).to(self.device)",
+            "        model_dtype = next(self.model.parameters()).dtype\n"
+            "        input_images = self.transform_image(image).unsqueeze(0).to(self.device, dtype=model_dtype)",
+        )
+        changed = True
+
+    if changed:
+        write_file(path, src)
+    else:
         print(f"  Already patched: {os.path.relpath(path, TRELLIS_ROOT)}")
-        return
-
-    # Replace to/cuda/cpu block
-    src = src.replace(
-        "    def to(self, device: str):\n"
-        "        self.model.to(device)\n"
-        "\n"
-        "    def cuda(self):\n"
-        "        self.model.cuda()\n"
-        "\n"
-        "    def cpu(self):\n"
-        "        self.model.cpu()",
-
-        "    @property\n"
-        "    def device(self):\n"
-        "        return next(self.model.parameters()).device\n"
-        "\n"
-        "    def to(self, device):\n"
-        "        self.model.to(device)\n"
-        "        return self\n"
-        "\n"
-        "    def cuda(self):\n"
-        "        self.model.to(self.device)\n"
-        "\n"
-        "    def cpu(self):\n"
-        "        self.model.cpu()",
-    )
-
-    # Fix hardcoded .to("cuda") in __call__
-    src = src.replace(
-        '.unsqueeze(0).to("cuda")',
-        ".unsqueeze(0).to(self.device)",
-    )
-
-    write_file(path, src)
 
 
 def patch_mesh_base():
@@ -331,18 +348,46 @@ def patch_fdg_vae():
 
 
 def patch_pipeline():
-    """Guard torch.cuda.empty_cache() call."""
+    """Guard torch.cuda.empty_cache() and override rembg model name."""
     path = os.path.join(TRELLIS_ROOT, "trellis2/pipelines/trellis2_image_to_3d.py")
     src = read_file(path)
+    changed = False
 
-    if "if torch.cuda.is_available():" in src:
+    if "if torch.cuda.is_available():" not in src:
+        src = src.replace(
+            "        torch.cuda.empty_cache()\n",
+            "        if torch.cuda.is_available():\n"
+            "            torch.cuda.empty_cache()\n",
+        )
+        changed = True
+
+    if "ZhengPeng7/BiRefNet" not in src:
+        src = src.replace(
+            "        pipeline.rembg_model = getattr(rembg, args['rembg_model']['name'])(**args['rembg_model']['args'])",
+            "        rembg_args = {**args['rembg_model']['args'], 'model_name': 'ZhengPeng7/BiRefNet'}\n"
+            "        pipeline.rembg_model = getattr(rembg, args['rembg_model']['name'])(**rembg_args)",
+        )
+        changed = True
+
+    if changed:
+        write_file(path, src)
+    else:
+        print(f"  Already patched: {os.path.relpath(path, TRELLIS_ROOT)}")
+
+
+def patch_texturing():
+    """Override rembg model name in the texturing pipeline."""
+    path = os.path.join(TRELLIS_ROOT, "trellis2/pipelines/trellis2_texturing.py")
+    src = read_file(path)
+
+    if "ZhengPeng7/BiRefNet" in src:
         print(f"  Already patched: {os.path.relpath(path, TRELLIS_ROOT)}")
         return
 
     src = src.replace(
-        "        torch.cuda.empty_cache()\n",
-        "        if torch.cuda.is_available():\n"
-        "            torch.cuda.empty_cache()\n",
+        "        pipeline.rembg_model = getattr(rembg, args['rembg_model']['name'])(**args['rembg_model']['args'])",
+        "        rembg_args = {**args['rembg_model']['args'], 'model_name': 'ZhengPeng7/BiRefNet'}\n"
+        "        pipeline.rembg_model = getattr(rembg, args['rembg_model']['name'])(**rembg_args)",
     )
     write_file(path, src)
 
@@ -439,6 +484,7 @@ def main():
     patch_mesh_base()
     patch_fdg_vae()
     patch_pipeline()
+    patch_texturing()
     patch_pipeline_base()
     install_conv_backend()
     install_mesh_extract()
